@@ -10,6 +10,8 @@ import SwiftData
 
 @main
 struct feteApp: App {
+    @StateObject private var authViewModel = AuthenticationViewModel()
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Item.self,
@@ -25,8 +27,13 @@ struct feteApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if authViewModel.isAuthenticated {
+                ContentView()
+                    .environmentObject(authViewModel)
+            } else {
+                SpotifyLoginView()
+                    .environmentObject(authViewModel)
+            }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
