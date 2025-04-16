@@ -223,7 +223,7 @@ class ContentViewModel: ObservableObject {
 struct ContentView: View {
     @StateObject private var viewModel = ContentViewModel()
     @StateObject private var authViewModel = AuthenticationViewModel()
-    @State private var selectedTab = 0 // 0 for Recently Played, 1 for Top Tracks
+    @State private var selectedTab = 0
     
     var body: some View {
         Group {
@@ -241,69 +241,7 @@ struct ContentView: View {
                                 }
                             })
                         } else {
-                            ScrollView {
-                                VStack(spacing: 20) {
-                                    // Top Artists Section
-                                    ArtistsSection(
-                                        title: "Top Artists",
-                                        artists: viewModel.topArtists,
-                                        onLoadMore: {
-                                            await viewModel.loadMoreTopArtists()
-                                        }
-                                    )
-                                    
-                                    // Tracks Section Picker
-                                    Picker("Track View", selection: $selectedTab) {
-                                        Text("Recently Played").tag(0)
-                                        Text("Top Tracks").tag(1)
-                                    }
-                                    .pickerStyle(.segmented)
-                                    .padding(.horizontal)
-                                    
-                                    // Dynamic Tracks Section
-                                    if selectedTab == 0 {
-                                        ActivitySection(
-                                            title: nil,
-                                            items: viewModel.recentlyPlayed.map { item in
-                                                // Convert the playedAt string to a Date
-                                                let dateFormatter = ISO8601DateFormatter()
-                                                dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                                                let playedAtDate = dateFormatter.date(from: item.playedAt)
-                                                
-                                                // print("Converting playedAt: \(item.playedAt) to date: \(String(describing: playedAtDate))")
-                                                
-                                                // Create a new Track with the playedAt date
-                                                return Track(
-                                                    id: item.track.id,
-                                                    uri: item.track.uri,
-                                                    name: item.track.name,
-                                                    artists: item.track.artists,
-                                                    album: item.track.album,
-                                                    context: item.track.context,
-                                                    position: item.track.position,
-                                                    durationMs: item.track.durationMs,
-                                                    popularity: item.track.popularity,
-                                                    explicit: item.track.explicit,
-                                                    playedAt: playedAtDate,
-                                                    previewUrl: item.track.previewUrl
-                                                )
-                                            },
-                                            onLoadMore: {
-                                                await viewModel.loadMoreRecentlyPlayed()
-                                            }
-                                        )
-                                    } else {
-                                        ActivitySection(
-                                            title: nil,
-                                            items: viewModel.topTracks,
-                                            onLoadMore: {
-                                                await viewModel.loadMoreTopTracks()
-                                            }
-                                        )
-                                    }
-                                }
-                                .padding()
-                            }
+                            MainContentView(viewModel: viewModel, selectedTab: $selectedTab)
                         }
                     }
                     .navigationTitle("Your Activity")
@@ -395,6 +333,7 @@ struct ArtistsSection: View {
     @State private var isLoadingMore = false
     @State private var currentPage = 0
     @GestureState private var dragOffset: CGFloat = 0
+    @GestureState private var isLongPressing = false
     
     private let cardWidth: CGFloat = 100
     private let cardHeight: CGFloat = 100
@@ -489,8 +428,20 @@ struct ArtistsSection: View {
                                         .font(.system(size: 20, weight: .bold))
                                         .foregroundColor(.black.opacity(0.4))
                                         .shadow(radius: 20)
+                                        .scaleEffect(isLongPressing ? 1.2 : 1.0)
                                 )
                         }
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 1.0)
+                                .updating($isLongPressing) { currentState, gestureState, _ in
+                                    gestureState = currentState
+                                }
+                                .onEnded { _ in
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        currentPage = 0
+                                    }
+                                }
+                        )
                         .transition(.opacity)
                     } else {
                         Rectangle()
@@ -560,6 +511,7 @@ struct ArtistsSection: View {
                 .padding(.horizontal, -5)
                 .offset(y: -15)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: currentPage)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isLongPressing)
             }
         }
     }
@@ -854,6 +806,114 @@ struct UserProfileButton: View {
                             .font(.system(size: 14))
                             .foregroundColor(.gray)
                     )
+            }
+        }
+    }
+}
+
+// First, let's create a new view for the fixed header
+struct HeaderView: View {
+    let artists: [Artist]
+    let selectedTab: Binding<Int>
+    let onLoadMore: () async -> Void
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Top Artists Section
+            ArtistsSection(
+                title: "Top Artists",
+                artists: artists,
+                onLoadMore: onLoadMore
+            )
+            
+            // Tracks Section Picker
+            Picker("Track View", selection: selectedTab) {
+                Text("Recently Played").tag(0)
+                Text("Top Tracks").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+        }
+        .padding()
+        .background(Color(UIColor.systemBackground))
+    }
+}
+
+// Create a view for the scrollable content
+struct TracksContentView: View {
+    let selectedTab: Int
+    let recentlyPlayed: [PlayHistoryItem]
+    let topTracks: [Track]
+    let onLoadMoreRecent: () async -> Void
+    let onLoadMoreTop: () async -> Void
+    
+    var body: some View {
+        if selectedTab == 0 {
+            ActivitySection(
+                title: nil,
+                items: recentlyPlayed.map { item in
+                    // Convert the playedAt string to a Date
+                    let dateFormatter = ISO8601DateFormatter()
+                    dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    let playedAtDate = dateFormatter.date(from: item.playedAt)
+                    
+                    return Track(
+                        id: item.track.id,
+                        uri: item.track.uri,
+                        name: item.track.name,
+                        artists: item.track.artists,
+                        album: item.track.album,
+                        context: item.track.context,
+                        position: item.track.position,
+                        durationMs: item.track.durationMs,
+                        popularity: item.track.popularity,
+                        explicit: item.track.explicit,
+                        playedAt: playedAtDate,
+                        previewUrl: item.track.previewUrl
+                    )
+                },
+                onLoadMore: onLoadMoreRecent
+            )
+        } else {
+            ActivitySection(
+                title: nil,
+                items: topTracks,
+                onLoadMore: onLoadMoreTop
+            )
+        }
+        // .padding()
+    }
+}
+
+// Update the main content view
+struct MainContentView: View {
+    @ObservedObject var viewModel: ContentViewModel
+    @Binding var selectedTab: Int
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Fixed Header
+            HeaderView(
+                artists: viewModel.topArtists,
+                selectedTab: $selectedTab,
+                onLoadMore: {
+                    await viewModel.loadMoreTopArtists()
+                }
+            )
+            
+            // Scrollable Content
+            ScrollView {
+                TracksContentView(
+                    selectedTab: selectedTab,
+                    recentlyPlayed: viewModel.recentlyPlayed,
+                    topTracks: viewModel.topTracks,
+                    onLoadMoreRecent: {
+                        await viewModel.loadMoreRecentlyPlayed()
+                    },
+                    onLoadMoreTop: {
+                        await viewModel.loadMoreTopTracks()
+                    }
+                )
             }
         }
     }
