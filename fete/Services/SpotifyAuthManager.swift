@@ -13,9 +13,9 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
     @Published var tokenExpirationDate: Date?
     
     // Replace these with your Spotify API credentials
-    private let clientID = "82ad3bc71f484f5ab969c3f470cbbdcd"
-    private let clientSecret = "1b8f7f60a1bc46f9ab970a9ffd843b30"
-    private let redirectURI = "fete://callback"
+    private let clientID: String? 
+    private let clientSecret: String?
+    private let redirectURI: String?
     
     private let scopes = [
         "user-read-currently-playing",
@@ -34,6 +34,30 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
     ]
     
     override init() {
+        // Initialize configuration values
+        do {
+            print("Attempting to load configuration...")
+            let clientID = try Configuration.value(for: "SPOTIFY_CLIENT_ID") as String
+            let clientSecret = try Configuration.value(for: "SPOTIFY_CLIENT_SECRET") as String
+            let baseRedirectURI = try Configuration.value(for: "SPOTIFY_REDIRECT_URI") as String
+            
+            // Ensure the redirect URI is properly formatted
+            let redirectURI = baseRedirectURI.hasSuffix("://callback") 
+                ? baseRedirectURI 
+                : "\(baseRedirectURI)//callback"
+            
+            print("Configuration loaded successfully:")
+            print("Client ID: \(clientID.prefix(5))...")
+            print("Redirect URI: \(redirectURI)")
+            
+            self.clientID = clientID
+            self.clientSecret = clientSecret
+            self.redirectURI = redirectURI
+        } catch {
+            print("Configuration error: \(error)")
+            fatalError("Missing required configuration. Ensure all keys are set in Config.xcconfig")
+        }
+
         super.init()
         // Load tokens from keychain if available
         if let accessToken = KeychainManager.shared.getAccessToken(),
@@ -49,6 +73,11 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
     // MARK: - Authentication URL
     private var authURL: URL? {
         var components = URLComponents(string: "https://accounts.spotify.com/authorize")
+        
+        print("🔍 Constructing auth URL...")
+        print("Client ID: \(clientID ?? "nil")")
+        print("Redirect URI: \(redirectURI ?? "nil")")
+        
         components?.queryItems = [
             URLQueryItem(name: "client_id", value: clientID),
             URLQueryItem(name: "response_type", value: "code"),
@@ -56,7 +85,10 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
             URLQueryItem(name: "scope", value: scopes.joined(separator: " ")),
             URLQueryItem(name: "show_dialog", value: "true")
         ]
-        return components?.url
+        
+        let finalURL = components?.url
+        print("📍 Final auth URL: \(finalURL?.absoluteString ?? "nil")")
+        return finalURL
     }
     
     // MARK: - Authentication Methods
@@ -97,11 +129,21 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
         var request = URLRequest(url: tokenURL)
         request.httpMethod = "POST"
         
-        // Create the authorization header
+        // Create the authorization header - safely unwrap optionals
+        guard let clientID = clientID, let clientSecret = clientSecret else {
+            print("Missing client credentials")
+            return
+        }
+        
         let authString = "\(clientID):\(clientSecret)".data(using: String.Encoding.utf8)?.base64EncodedString() ?? ""
         request.addValue("Basic \(authString)", forHTTPHeaderField: "Authorization")
         
-        // Create the request body
+        // Create the request body - safely handle optional redirectURI
+        guard let redirectURI = redirectURI else {
+            print("Missing redirect URI")
+            return
+        }
+        
         let bodyParams = [
             "grant_type": "authorization_code",
             "code": code,
@@ -113,7 +155,7 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
             .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
             .joined(separator: "&")
         
-        request.httpBody = bodyString.data(using: .utf8)
+        request.httpBody = bodyString.data(using: String.Encoding.utf8)
         request.addValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
         do {
@@ -164,7 +206,12 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
         var request = URLRequest(url: tokenURL)
         request.httpMethod = "POST"
         
-        // Create the authorization header
+        // Create the authorization header - safely unwrap optionals
+        guard let clientID = clientID, let clientSecret = clientSecret else {
+            print("Missing client credentials")
+            return
+        }
+        
         let authString = "\(clientID):\(clientSecret)".data(using: String.Encoding.utf8)?.base64EncodedString() ?? ""
         request.addValue("Basic \(authString)", forHTTPHeaderField: "Authorization")
         
@@ -247,7 +294,7 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
     // MARK: - Token Management
     func getValidAccessToken() async -> String? {
         // Check if we have a token and expiration date
-        guard let accessToken = self.accessToken,
+        guard let currentToken = self.accessToken,
               let expirationDate = tokenExpirationDate else {
             return nil
         }

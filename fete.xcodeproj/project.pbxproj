@@ -6,10 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		31BB2F9A2DADC21100C224C1 /* Inject in Frameworks */ = {isa = PBXBuildFile; productRef = 31BB2F992DADC21100C224C1 /* Inject */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		31D9AB2E2D9EEFD7009FB80D /* fete.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = fete.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -40,7 +36,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				31BB2F9A2DADC21100C224C1 /* Inject in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -83,7 +78,6 @@
 			);
 			name = fete;
 			packageProductDependencies = (
-				31BB2F992DADC21100C224C1 /* Inject */,
 			);
 			productName = fete;
 			productReference = 31D9AB2E2D9EEFD7009FB80D /* fete.app */;
@@ -114,7 +108,6 @@
 			mainGroup = 31D9AB252D9EEFD7009FB80D;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				31BB2F982DADC21100C224C1 /* XCRemoteSwiftPackageReference "Inject" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 31D9AB2F2D9EEFD7009FB80D /* Products */;
@@ -149,6 +142,8 @@
 /* Begin XCBuildConfiguration section */
 		31D9AB3D2D9EEFD8009FB80D /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 31D9AB302D9EEFD7009FB80D /* fete */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -210,6 +205,8 @@
 		};
 		31D9AB3E2D9EEFD8009FB80D /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 31D9AB302D9EEFD7009FB80D /* fete */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -263,6 +260,8 @@
 		};
 		31D9AB402D9EEFD8009FB80D /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 31D9AB302D9EEFD7009FB80D /* fete */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -303,6 +302,8 @@
 		};
 		31D9AB412D9EEFD8009FB80D /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 31D9AB302D9EEFD7009FB80D /* fete */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -363,25 +364,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		31BB2F982DADC21100C224C1 /* XCRemoteSwiftPackageReference "Inject" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/krzysztofzablocki/Inject.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.5.2;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		31BB2F992DADC21100C224C1 /* Inject */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 31BB2F982DADC21100C224C1 /* XCRemoteSwiftPackageReference "Inject" */;
-			productName = Inject;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 31D9AB262D9EEFD7009FB80D /* Project object */;
 }
