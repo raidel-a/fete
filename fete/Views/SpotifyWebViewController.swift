@@ -1,41 +1,24 @@
-import SwiftUI
+@preconcurrency
 import WebKit
+import SwiftUI
 
 struct SpotifyWebView: UIViewRepresentable {
     let url: URL
     
-    // Required by UIViewRepresentable
-    func makeUIView(context: UIViewRepresentableContext<SpotifyWebView>) -> WKWebView {
-        let webView = WKWebView()
-        webView.navigationDelegate = context.coordinator
-        webView.load(URLRequest(url: url))
-        return webView
-    }
+    typealias UIViewType = WKWebView
     
-    // Required by UIViewRepresentable
-    func updateUIView(_ webView: WKWebView, context: UIViewRepresentableContext<SpotifyWebView>) {
-        // No updates needed
-    }
-    
-    // Required for coordinator pattern
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    // Coordinator to handle web view navigation
+    // 1. Define Coordinator
     class Coordinator: NSObject, WKNavigationDelegate {
-        let parent: SpotifyWebView
+        var parent: SpotifyWebView
         
         init(_ parent: SpotifyWebView) {
             self.parent = parent
+            super.init()
         }
         
-        // Handle navigation events if needed
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if let url = navigationAction.request.url {
-                // Handle callback URL if needed
                 if url.scheme == "fete" {
-                    // Handle the callback
                     decisionHandler(.cancel)
                     return
                 }
@@ -43,13 +26,30 @@ struct SpotifyWebView: UIViewRepresentable {
             decisionHandler(.allow)
         }
     }
+    
+    // 2. Implement required makeCoordinator method
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    // 3. Fix makeUIView implementation
+    func makeUIView(context: UIViewRepresentableContext<SpotifyWebView>) -> WKWebView {
+        let webView = WKWebView()
+        webView.navigationDelegate = context.coordinator
+        webView.load(URLRequest(url: url))
+        return webView
+    }
+    
+    // 4. Fix updateUIView implementation
+    func updateUIView(_ webView: WKWebView, context: UIViewRepresentableContext<SpotifyWebView>) {
+        // No updates needed
+    }
 }
 
-// Preview provider for SwiftUI previews
 #if DEBUG
 struct SpotifyWebView_Previews: PreviewProvider {
     static var previews: some View {
         SpotifyWebView(url: URL(string: "https://accounts.spotify.com")!)
     }
 }
-#endif 
+#endif
