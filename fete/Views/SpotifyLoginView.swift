@@ -77,20 +77,6 @@ struct SpotifyLoginView: View {
     }
 }
 
-//struct FeatureRow: View {
-//    let icon: String
-//    let text: String
-//    
-//    var body: some View {
-//        HStack(spacing: 15) {
-//            Image(systemName: icon)
-//                .foregroundColor(.green)
-//                .font(.title2)
-//            Text(text)
-//                .font(.body)
-//        }
-//    }
-//}
 
 #Preview {
     SpotifyLoginView()
