@@ -5,7 +5,6 @@ import AuthenticationServices
 @MainActor
 struct AuthenticationView: View {
     @ObservedObject var authViewModel: AuthenticationViewModel
-    @State private var showingSpotifyLogin = false
     @Environment(\.scenePhase) private var scenePhase
     
     var body: some View {
@@ -66,6 +65,22 @@ struct AuthenticationView: View {
                 }
                 .frame(minHeight: geometry.size.height)
                 .padding()
+            }
+        }
+        .sheet(isPresented: $authViewModel.showingWebView) {
+            if let url = authViewModel.authURL {
+                NavigationView {
+                    SpotifyWebView(url: url)
+                        .navigationTitle("Spotify Login")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarLeading) {
+                                Button("Cancel") {
+                                    authViewModel.showingWebView = false
+                                }
+                            }
+                        }
+                }
             }
         }
         .onChange(of: scenePhase) { newPhase in

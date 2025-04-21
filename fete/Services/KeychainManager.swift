@@ -52,6 +52,35 @@ class KeychainManager {
         removeFromKeychain(forKey: "spotify_token_expiration")
     }
     
+    // MARK: - Spotify DC Cookie
+    
+    func saveSpotifyDCCookie(_ cookie: String) {
+        print("💾 Attempting to save sp_dc cookie to keychain: \(String(cookie.prefix(5)))...")
+        saveToKeychain(value: cookie, forKey: "spotify_sp_dc")
+        
+        // Verify save
+        if let savedCookie = getSpotifyDCCookie() {
+            print("✅ Successfully saved and verified sp_dc cookie")
+        } else {
+            print("❌ Failed to verify saved sp_dc cookie")
+        }
+    }
+    
+    func getSpotifyDCCookie() -> String? {
+        print("🔍 Attempting to retrieve sp_dc cookie from keychain")
+        if let cookie = getFromKeychain(forKey: "spotify_sp_dc") {
+            print("✅ Found sp_dc cookie in keychain: \(String(cookie.prefix(5)))...")
+            return cookie
+        } else {
+            print("❌ No sp_dc cookie found in keychain")
+            return nil
+        }
+    }
+    
+    func removeSpotifyDCCookie() {
+        removeFromKeychain(forKey: "spotify_sp_dc")
+    }
+    
     // MARK: - Private Methods
     
     private func saveToKeychain(value: String, forKey key: String) {

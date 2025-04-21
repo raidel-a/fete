@@ -71,12 +71,8 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
     }
     
     // MARK: - Authentication URL
-    private var authURL: URL? {
+    var authURL: URL? {
         var components = URLComponents(string: "https://accounts.spotify.com/authorize")
-        
-        print("🔍 Constructing auth URL...")
-        print("Client ID: \(clientID ?? "nil")")
-        print("Redirect URI: \(redirectURI ?? "nil")")
         
         components?.queryItems = [
             URLQueryItem(name: "client_id", value: clientID),
@@ -86,119 +82,37 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
             URLQueryItem(name: "show_dialog", value: "true")
         ]
         
-        let finalURL = components?.url
-        print("📍 Final auth URL: \(finalURL?.absoluteString ?? "nil")")
-        return finalURL
+        return components?.url
     }
     
     // MARK: - Authentication Methods
-    func authenticate() {
-        guard let authURL = authURL else { return }
-        
-        let session = ASWebAuthenticationSession(
-            url: authURL,
-            callbackURLScheme: "fete"
-        ) { [weak self] callbackURL, error in
-            guard let self = self,
-                  error == nil,
-                  let callbackURL = callbackURL,
-                  let code = self.extractCode(from: callbackURL) else {
-                return
-            }
-            
-            Task {
-                await self.exchangeCodeForToken(code: code)
-            }
-        }
-        
-        session.presentationContextProvider = self
-        session.prefersEphemeralWebBrowserSession = true
-        session.start()
+    // We'll handle the web flow ourselves with SpotifyWebView
+    
+    // MARK: - ASWebAuthenticationPresentationContextProviding
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        return ASPresentationAnchor()
     }
     
-    private func extractCode(from url: URL) -> String? {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
-              let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
-            return nil
+    // MARK: - Token Management
+    func getValidAccessToken() async -> String? {
+        if let expirationDate = tokenExpirationDate,
+           let accessToken = accessToken,
+           expirationDate > Date() {
+            return accessToken
         }
-        return code
-    }
-    
-    private func exchangeCodeForToken(code: String) async {
-        let tokenURL = URL(string: "https://accounts.spotify.com/api/token")!
-        var request = URLRequest(url: tokenURL)
-        request.httpMethod = "POST"
-        
-        // Create the authorization header - safely unwrap optionals
-        guard let clientID = clientID, let clientSecret = clientSecret else {
-            print("Missing client credentials")
-            return
-        }
-        
-        let authString = "\(clientID):\(clientSecret)".data(using: String.Encoding.utf8)?.base64EncodedString() ?? ""
-        request.addValue("Basic \(authString)", forHTTPHeaderField: "Authorization")
-        
-        // Create the request body - safely handle optional redirectURI
-        guard let redirectURI = redirectURI else {
-            print("Missing redirect URI")
-            return
-        }
-        
-        let bodyParams = [
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirectURI
-        ]
-        
-        // Properly encode the parameters
-        let bodyString = bodyParams
-            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
-            .joined(separator: "&")
-        
-        request.httpBody = bodyString.data(using: String.Encoding.utf8)
-        request.addValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                print("Failed to exchange code for token")
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("Response: \(responseString)")
-                }
-                return
-            }
-            
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .useDefaultKeys
-            let tokenResponse = try decoder.decode(TokenResponse.self, from: data)
-            
-            // Store tokens
-            self.accessToken = tokenResponse.access_token
-            if let refreshToken = tokenResponse.refresh_token {
-                self.refreshToken = refreshToken
-                KeychainManager.shared.saveRefreshToken(refreshToken)
-            }
-            self.tokenExpirationDate = Date().addingTimeInterval(TimeInterval(tokenResponse.expires_in))
-            self.isAuthenticated = true
-            
-            // Save to keychain
-            KeychainManager.shared.saveAccessToken(tokenResponse.access_token)
-            KeychainManager.shared.saveTokenExpirationDate(self.tokenExpirationDate!)
-            
+            await refreshAccessToken()
+            return accessToken
         } catch {
-            print("Error exchanging code for token: \(error)")
-            if let decodingError = error as? DecodingError {
-                print("Decoding error details: \(decodingError)")
-            }
+            print("Error refreshing token: \(error)")
+            return nil
         }
     }
     
     func refreshAccessToken() async {
         guard let refreshToken = self.refreshToken ?? KeychainManager.shared.getRefreshToken() else {
             print("No refresh token available")
-            signOut()
             return
         }
         
@@ -206,24 +120,21 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
         var request = URLRequest(url: tokenURL)
         request.httpMethod = "POST"
         
-        // Create the authorization header - safely unwrap optionals
         guard let clientID = clientID, let clientSecret = clientSecret else {
             print("Missing client credentials")
             return
         }
         
-        let authString = "\(clientID):\(clientSecret)".data(using: String.Encoding.utf8)?.base64EncodedString() ?? ""
+        let authString = "\(clientID):\(clientSecret)".data(using: .utf8)?.base64EncodedString() ?? ""
         request.addValue("Basic \(authString)", forHTTPHeaderField: "Authorization")
         
-        // Create the request body
         let bodyParams = [
             "grant_type": "refresh_token",
             "refresh_token": refreshToken
         ]
         
-        // Properly encode the parameters
         let bodyString = bodyParams
-            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+            .map { "\($0.key)=\($0.value)" }
             .joined(separator: "&")
         
         request.httpBody = bodyString.data(using: .utf8)
@@ -232,45 +143,31 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             
-            guard let httpResponse = response as? HTTPURLResponse else {
-                print("Invalid response during token refresh")
-                return
-            }
-            
-            if httpResponse.statusCode != 200 {
-                print("Failed to refresh token with status code: \(httpResponse.statusCode)")
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                print("Failed to refresh token")
                 if let responseString = String(data: data, encoding: .utf8) {
                     print("Response: \(responseString)")
-                }
-                if httpResponse.statusCode == 401 {
-                    // Token refresh failed, sign out user
-                    signOut()
                 }
                 return
             }
             
             let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .useDefaultKeys
             let tokenResponse = try decoder.decode(TokenResponse.self, from: data)
             
-            // Update tokens
             self.accessToken = tokenResponse.access_token
+            self.tokenExpirationDate = Date().addingTimeInterval(TimeInterval(tokenResponse.expires_in))
+            
+            KeychainManager.shared.saveAccessToken(tokenResponse.access_token)
+            KeychainManager.shared.saveTokenExpirationDate(self.tokenExpirationDate!)
+            
             if let newRefreshToken = tokenResponse.refresh_token {
                 self.refreshToken = newRefreshToken
                 KeychainManager.shared.saveRefreshToken(newRefreshToken)
             }
-            self.tokenExpirationDate = Date().addingTimeInterval(TimeInterval(tokenResponse.expires_in))
-            
-            // Save to keychain
-            KeychainManager.shared.saveAccessToken(tokenResponse.access_token)
-            KeychainManager.shared.saveTokenExpirationDate(self.tokenExpirationDate!)
             
         } catch {
             print("Error refreshing token: \(error)")
-            if let decodingError = error as? DecodingError {
-                print("Decoding error details: \(decodingError)")
-            }
-            signOut()
         }
     }
     
@@ -280,31 +177,80 @@ class SpotifyAuthManager: NSObject, ObservableObject, ASWebAuthenticationPresent
         tokenExpirationDate = nil
         isAuthenticated = false
         
-        // Remove from keychain
         KeychainManager.shared.removeAccessToken()
         KeychainManager.shared.removeRefreshToken()
         KeychainManager.shared.removeTokenExpirationDate()
+        KeychainManager.shared.removeSpotifyDCCookie()
     }
     
-    // MARK: - ASWebAuthenticationPresentationContextProviding
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        return ASPresentationAnchor()
-    }
-    
-    // MARK: - Token Management
-    func getValidAccessToken() async -> String? {
-        // Check if we have a token and expiration date
-        guard let currentToken = self.accessToken,
-              let expirationDate = tokenExpirationDate else {
-            return nil
+    func exchangeCodeForToken(_ code: String) async throws {
+        guard let clientID = clientID,
+              let clientSecret = clientSecret,
+              let redirectURI = redirectURI else {
+            throw NSError(domain: "SpotifyAuthManager", 
+                         code: -1, 
+                         userInfo: [NSLocalizedDescriptionKey: "Missing configuration"])
         }
         
-        // If token is expired or about to expire in the next 5 minutes, refresh it
-        if Date().addingTimeInterval(300) >= expirationDate {
-            await refreshAccessToken()
+        let tokenURL = URL(string: "https://accounts.spotify.com/api/token")!
+        var request = URLRequest(url: tokenURL)
+        request.httpMethod = "POST"
+        
+        // Create the authorization header
+        let authString = "\(clientID):\(clientSecret)".data(using: .utf8)!.base64EncodedString()
+        request.setValue("Basic \(authString)", forHTTPHeaderField: "Authorization")
+        
+        // Create the request body
+        let bodyParams = [
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirectURI
+        ]
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = bodyParams
+            .map { "\($0)=\($1)" }
+            .joined(separator: "&")
+            .data(using: .utf8)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw NSError(domain: "SpotifyAuthManager", 
+                         code: -1, 
+                         userInfo: [NSLocalizedDescriptionKey: "Token exchange failed"])
         }
         
-        return self.accessToken
+        struct TokenResponse: Codable {
+            let accessToken: String
+            let tokenType: String
+            let expiresIn: Int
+            let refreshToken: String
+            let scope: String
+            
+            enum CodingKeys: String, CodingKey {
+                case accessToken = "access_token"
+                case tokenType = "token_type"
+                case expiresIn = "expires_in"
+                case refreshToken = "refresh_token"
+                case scope
+            }
+        }
+        
+        let decoder = JSONDecoder()
+        let tokenResponse = try decoder.decode(TokenResponse.self, from: data)
+        
+        // Save tokens
+        self.accessToken = tokenResponse.accessToken
+        self.refreshToken = tokenResponse.refreshToken
+        self.tokenExpirationDate = Date().addingTimeInterval(TimeInterval(tokenResponse.expiresIn))
+        
+        // Save to keychain
+        KeychainManager.shared.saveAccessToken(tokenResponse.accessToken)
+        KeychainManager.shared.saveRefreshToken(tokenResponse.refreshToken)
+        KeychainManager.shared.saveTokenExpirationDate(self.tokenExpirationDate!)
+        
+        print("✅ Successfully exchanged code for tokens")
     }
 }
 
