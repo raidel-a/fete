@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CommonCrypto
 
 
 class SpotifyFriendService {
@@ -7,324 +8,87 @@ class SpotifyFriendService {
     private var webPlayerToken: String?
     private var webPlayerTokenExpiration: Date?
     
-    private func getWebPlayerToken(spDcCookie: String) async throws -> String {
-        // Get current timestamp in milliseconds
-        let currentTimeMs = Int(Date().timeIntervalSince1970 * 1000)
-        let sTime = Int(currentTimeMs / 1000)
-        let buildDate = "2025-04-07"
-        let buildVer = "web-player_2025-04-07_1743986580456_e423c90"
-        let clientId = "d8a5ed958d274c2e8ee717e6a4b0971d"
+    private func getExternalTOTP() async throws -> TOTPResponse {
+        guard let url = URL(string: "https://totp-gateway.glitch.me/create") else {
+            throw SpotifyServiceError.invalidResponse
+        }
         
-        // Construct URL with all required parameters
-        let urlString = "https://open.spotify.com/get_access_token" +
-            "?reason=init" +
-            "&productType=web-player" +
-            "&totp=808342" +
-            "&totpServer=808342" +
-            "&totpVer=5" +
-            "&sTime=\(sTime)" +
-            "&cTime=\(currentTimeMs)" +
-            "&buildVer=\(buildVer)" +
-            "&buildDate=\(buildDate)" +
-            "&clientId=\(clientId)"
+        let (data, response) = try await URLSession.shared.data(from: url)
         
-        guard let url = URL(string: urlString) else {
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw SpotifyServiceError.invalidResponse
+        }
+        
+        return try JSONDecoder().decode(TOTPResponse.self, from: data)
+    }
+    
+    private func getWebPlayerToken() async throws -> String {
+        let totpResponse = try await getExternalTOTP()
+        
+        var components = URLComponents(string: "https://open.spotify.com/get_access_token")!
+        components.queryItems = [
+            URLQueryItem(name: "reason", value: "init"),
+            URLQueryItem(name: "productType", value: "web-player"),
+            URLQueryItem(name: "totp", value: totpResponse.totp),
+            URLQueryItem(name: "totpVer", value: "5"),
+            URLQueryItem(name: "cTime", value: String(totpResponse.timestamp))
+        ]
+        
+        guard let url = components.url else {
             throw SpotifyServiceError.invalidResponse
         }
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        
-        // Set all headers exactly as web player
-        request.setValue("open.spotify.com", forHTTPHeaderField: "authority")
         request.setValue("*/*", forHTTPHeaderField: "accept")
-        request.setValue("gzip, deflate, br, zstd", forHTTPHeaderField: "accept-encoding")
-        request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "accept-language")
-        request.setValue("sentry-environment=production,sentry-release=\(buildVer),sentry-public_key=de32132fc06e4b28965ecf25332c3a25,sentry-trace_id=fed344c062db425c9137dcf8e04e3cb4,sentry-sample_rate=0.008,sentry-sampled=false", forHTTPHeaderField: "baggage")
-        
-        // Set all required cookies
-        let cookies = [
-            "sp_dc=\(spDcCookie)",
-            "sp_gaid=0",
-            "sp_t=2",
-            "sp_landing=https%3A%2F%2Fopen.spotify.com%2F",
-            "sp_m=us"
-        ].joined(separator: "; ")
-        request.setValue(cookies, forHTTPHeaderField: "cookie")
-        
-        request.setValue("1", forHTTPHeaderField: "dnt")
-        request.setValue("u=1, i", forHTTPHeaderField: "priority")
-        request.setValue("https://open.spotify.com/", forHTTPHeaderField: "referer")
-        request.setValue("\"Chromium\";v=\"135\", \"Not-A.Brand\";v=\"8\"", forHTTPHeaderField: "sec-ch-ua")
-        request.setValue("?0", forHTTPHeaderField: "sec-ch-ua-mobile")
-        request.setValue("\"macOS\"", forHTTPHeaderField: "sec-ch-ua-platform")
-        request.setValue("empty", forHTTPHeaderField: "sec-fetch-dest")
-        request.setValue("cors", forHTTPHeaderField: "sec-fetch-mode")
-        request.setValue("same-origin", forHTTPHeaderField: "sec-fetch-site")
-        request.setValue("fed344c062db425c9137dcf8e04e3cb4-962de737bfcf3b9c-0", forHTTPHeaderField: "sentry-trace")
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36", forHTTPHeaderField: "user-agent")
-        
-        // Print full request for debugging
-        print("\nRequest Debug:")
-        print("URL: \(url)")
-        print("Headers: \(request.allHTTPHeaderFields ?? [:])")
+        request.setValue("en", forHTTPHeaderField: "accept-language")
+        request.setValue("Mozilla/5.0", forHTTPHeaderField: "user-agent")
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
-        if let httpResponse = response as? HTTPURLResponse {
-            print("\nResponse Debug:")
-            print("Status Code: \(httpResponse.statusCode)")
-            print("Response Headers: \(httpResponse.allHeaderFields)")
-            
-            // Print response for debugging
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("Response Body: \(responseString)")
-            }
-            
-            if httpResponse.statusCode != 200 {
-                throw SpotifyServiceError.unauthorized
-            }
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw SpotifyServiceError.unauthorized
         }
         
-        struct TokenResponse: Codable {
-            let clientId: String
-            let accessToken: String
-            let accessTokenExpirationTimestampMs: Int64
-            let isAnonymous: Bool
-            let totpValidity: Bool
-            let notes: String?
-            
-            enum CodingKeys: String, CodingKey {
-                case clientId
-                case accessToken
-                case accessTokenExpirationTimestampMs
-                case isAnonymous
-                case totpValidity
-                case notes = "_notes"
-            }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let accessToken = json?["accessToken"] as? String else {
+            throw SpotifyServiceError.invalidResponse
         }
         
-        let decoder = JSONDecoder()
-        let tokenResponse = try decoder.decode(TokenResponse.self, from: data)
-        
-        // Validate token
-        print("\nToken Debug:")
-        print("Client ID: \(tokenResponse.clientId)")
-        print("Access Token Length: \(tokenResponse.accessToken.count)")
-        print("Token Expiration: \(tokenResponse.accessTokenExpirationTimestampMs)")
-        print("Is Anonymous: \(tokenResponse.isAnonymous)")
-        print("TOTP Validity: \(tokenResponse.totpValidity)")
-        if let notes = tokenResponse.notes {
-            print("Notes: \(notes)")
-        }
-        
-        return tokenResponse.accessToken
+        return accessToken
     }
     
-    func fetchFriendActivity(spDcCookie: String) async throws -> [FriendActivity] {
-        // First get a web player token
-        let token = try await getWebPlayerToken(spDcCookie: spDcCookie)
+    func fetchFriendActivity() async throws -> [FriendActivity] {
+        let accessToken = try await getWebPlayerToken()
         
-        // Then get the buddy list using the token
-        let url = URL(string: "https://guc-spclient.spotify.com/presence-view/v1/buddylist")!
+        guard let url = URL(string: "https://spclient.wg.spotify.com/presence-view/v1/buddylist") else {
+            throw SpotifyServiceError.invalidResponse
+        }
+        
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        
-        // Set authorization header exactly like shortcut
-        let authHeader = "Bearer \(token)"
-        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-        
-        // Add headers in exact order as web player
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-        request.setValue("https://open.spotify.com", forHTTPHeaderField: "Origin")
-        request.setValue("https://open.spotify.com/", forHTTPHeaderField: "Referer")
-        request.setValue("*/*", forHTTPHeaderField: "Accept")
-        request.setValue("same-origin", forHTTPHeaderField: "Sec-Fetch-Site")
-        request.setValue("cors", forHTTPHeaderField: "Sec-Fetch-Mode")
-        request.setValue("empty", forHTTPHeaderField: "Sec-Fetch-Dest")
-        request.setValue("?1", forHTTPHeaderField: "Sec-Fetch-User")
-        request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
-        request.setValue("gzip, deflate, br", forHTTPHeaderField: "Accept-Encoding")
-        
-        // Print request debug info
-        print("\nBuddy List Request Debug:")
-        print("URL: \(url)")
-        print("Authorization Header: '\(authHeader)'")
-        print("All Headers: \(request.allHTTPHeaderFields ?? [:])")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "authorization")
+        request.setValue("WebPlayer", forHTTPHeaderField: "app-platform")
+        request.setValue("*/*", forHTTPHeaderField: "accept")
+        request.setValue("en", forHTTPHeaderField: "accept-language")
+        request.setValue("Mozilla/5.0", forHTTPHeaderField: "user-agent")
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
-        if let httpResponse = response as? HTTPURLResponse {
-            print("\nBuddy List Response Debug:")
-            print("Status Code: \(httpResponse.statusCode)")
-            print("Response Headers: \(httpResponse.allHeaderFields)")
-            
-            // Print response for debugging
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("Response Body: \(responseString)")
-            }
-            
-            if httpResponse.statusCode != 200 {
-                throw SpotifyServiceError.unauthorized
-            }
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw SpotifyServiceError.unauthorized
         }
         
-        // Parse buddy list response
-        struct BuddyListResponse: Codable {
-            let friends: [Friend]
-            
-            struct Friend: Codable {
-                let user: User
-                let timestamp: String
-                let track: TrackInfo
-                
-                struct User: Codable {
-                    let uri: String
-                    let name: String
-                    let imageUrl: String?
-                    
-                    enum CodingKeys: String, CodingKey {
-                        case uri
-                        case name
-                        case imageUrl = "imageUrl"
-                    }
-                }
-                
-                struct TrackInfo: Codable {
-                    let uri: String
-                    let name: String
-                    let imageUrl: String?
-                    let artist: Artist
-                    let album: Album
-                    let context: Context?
-                    
-                    enum CodingKeys: String, CodingKey {
-                        case uri
-                        case name
-                        case imageUrl = "imageUrl"
-                        case artist
-                        case album
-                        case context
-                    }
-                }
-                
-                struct Artist: Codable {
-                    let id: String
-                    let uri: String
-                    let name: String
-                    let images: [Image]?
-                    
-                    enum CodingKeys: String, CodingKey {
-                        case id
-                        case uri
-                        case name
-                        case images
-                    }
-                    
-                    struct Image: Codable {
-                        let url: String
-                        let height: Int?
-                        let width: Int?
-                    }
-                }
-                
-                struct Album: Codable {
-                    let id: String
-                    let uri: String
-                    let name: String
-                    let images: [Image]
-                    let releaseDate: String?
-                    let totalTracks: Int?
-                    let albumType: String?
-                    
-                    enum CodingKeys: String, CodingKey {
-                        case id
-                        case uri
-                        case name
-                        case images
-                        case releaseDate
-                        case totalTracks
-                        case albumType
-                    }
-                    
-                    struct Image: Codable {
-                        let url: String
-                        let height: Int?
-                        let width: Int?
-                    }
-                }
-                
-                struct Context: Codable {
-                    let id: String
-                    let uri: String
-                    let name: String
-                    let index: Int?
-                }
-            }
+        // Print response for debugging
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("📝 Buddylist Response: \(responseString)")
         }
         
-        let decoder = JSONDecoder()
-        let buddyList = try decoder.decode(BuddyListResponse.self, from: data)
-        
-        // Convert buddy list to FriendActivity array
-        return buddyList.friends.map { friend in
-            let user = SpotifyUser(
-                name: friend.user.name,
-                uri: friend.user.uri,
-                imageUrl: friend.user.imageUrl
-            )
-            
-            let artist = Artist(
-                id: friend.track.artist.uri,
-                uri: friend.track.artist.uri,
-                name: friend.track.artist.name,
-                images: friend.track.artist.images?.map { image in
-                    Artist.Image(url: image.url, height: image.height, width: image.width)
-                }
-            )
-            
-            let album = Album(
-                id: friend.track.album.uri,
-                uri: friend.track.album.uri,
-                name: friend.track.album.name,
-                images: friend.track.album.images.map { image in
-                    Album.Image(url: image.url, height: image.height, width: image.width)
-                },
-                releaseDate: nil,
-                totalTracks: nil,
-                albumType: nil
-            )
-            
-            let context = friend.track.context.map { ctx in
-                Context(
-                    id: ctx.uri,
-                    uri: ctx.uri,
-                    name: ctx.name,
-                    index: ctx.index
-                )
-            }
-            
-            let track = Track(
-                id: friend.track.uri,
-                uri: friend.track.uri,
-                name: friend.track.name,
-                artists: [artist],
-                album: album,
-                context: context,
-                position: nil,
-                durationMs: nil,
-                popularity: nil,
-                explicit: nil,
-                playedAt: nil,
-                previewUrl: nil
-            )
-            
-            return FriendActivity(
-                timestamp: friend.timestamp,
-                user: user,
-                track: track
-            )
-        }
+        let buddyList = try JSONDecoder().decode(BuddyListResponse.self, from: data)
+        return buddyList.friends
     }
 }
 
@@ -332,4 +96,47 @@ enum SpotifyServiceError: Error {
     case unauthorized
     case invalidResponse
     case networkError(Error)
+}
+
+private struct WebPlayerTokenResponse: Codable {
+    let clientId: String
+    let accessToken: String
+    let accessTokenExpirationTimestampMs: Int64
+    let isAnonymous: Bool
+    let totpValidity: Int
+}
+
+private func generateTOTP(timestamp: Int64) -> String {
+    let interval: Int64 = 30
+    let timeBlock = timestamp / (interval * 1000)
+    
+    var timeBytes = withUnsafeBytes(of: timeBlock.bigEndian) { Array($0) }
+    
+    // Create a key for HMAC (using a fixed key for demonstration)
+    let key = "spotify_totp_key".data(using: .utf8)!.map { UInt8($0) }
+    
+    var hash = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
+    CCHmac(CCHmacAlgorithm(kCCHmacAlgSHA1),
+           key, // Key
+           key.count, // Key length
+           timeBytes, // Data
+           timeBytes.count, // Data length
+           &hash) // Output buffer
+    
+    // Get offset
+    let offset = hash[hash.count - 1] & 0x0f
+    
+    // Generate 6-digit TOTP
+    let binary = ((Int(hash[Int(offset)]) & 0x7f) << 24) |
+                ((Int(hash[Int(offset + 1)]) & 0xff) << 16) |
+                ((Int(hash[Int(offset + 2)]) & 0xff) << 8) |
+                (Int(hash[Int(offset + 3)]) & 0xff)
+    
+    let otp = binary % 1000000
+    return String(format: "%06d", otp)
+}
+
+private struct TOTPResponse: Codable {
+    let totp: String
+    let timestamp: Int64
 }
