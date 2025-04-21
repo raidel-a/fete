@@ -42,7 +42,7 @@ struct SpotifyLoginView: View {
                         HStack {
                             Image(systemName: "music.note")
                                 .resizable()
-                                .frame(width: 16 , height: 24)
+                                .frame(width: 16, height: 24)
                             Text("Connect with Spotify")
                                 .font(.headline)
                         }
@@ -72,6 +72,22 @@ struct SpotifyLoginView: View {
                                              to: nil, 
                                              from: nil, 
                                              for: nil)
+            }
+        }
+        .sheet(isPresented: $authViewModel.showingWebView) {
+            if let url = authViewModel.authURL {
+                NavigationView {
+                    SpotifyWebView(url: url)
+                        .navigationTitle("Spotify Login")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarLeading) {
+                                Button("Cancel") {
+                                    authViewModel.showingWebView = false
+                                }
+                            }
+                        }
+                }
             }
         }
     }
