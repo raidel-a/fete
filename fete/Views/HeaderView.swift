@@ -29,7 +29,12 @@ struct HeaderView: View {
         }
         .padding(.top)
         .background(Color(UIColor.systemBackground))
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isLongPressing)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                FriendsDropdownButton()
+            }
+        }
     }
 }
 
