@@ -156,52 +156,16 @@ struct FriendActivityResponse: Codable {
     let friends: [FriendActivity]
 }
 
-struct FriendActivity: Codable, Identifiable, Equatable {
-    let timestamp: String
-    let user: SpotifyUser
-    let track: Track
-    let id: String
-    
-    enum CodingKeys: String, CodingKey {
-        case timestamp, user, track
-    }
-    
-    init(timestamp: String, user: SpotifyUser, track: Track) {
-        self.timestamp = timestamp
-        self.user = user
-        self.track = track
-        self.id = "\(user.name)_\(track.uri)_\(timestamp)"
-    }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        timestamp = try container.decode(String.self, forKey: .timestamp)
-        user = try container.decode(SpotifyUser.self, forKey: .user)
-        track = try container.decode(Track.self, forKey: .track)
-        id = "\(user.name)_\(track.uri)_\(timestamp)"
-    }
-    
-    static func == (lhs: FriendActivity, rhs: FriendActivity) -> Bool {
-        lhs.id == rhs.id
-    }
+struct FriendActivity: Codable, Equatable {
+    let timestamp: Int64
+    let user: User
+    let track: FriendTrack
 }
 
-struct SpotifyUser: Codable, Identifiable, Equatable, Hashable {
-    let name: String
+struct User: Codable, Equatable {
     let uri: String
+    let name: String
     let imageUrl: String?
-    
-    var id: String {
-        uri.replacingOccurrences(of: "spotify:user:", with: "")
-    }
-    
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(uri)
-    }
-    
-    static func == (lhs: SpotifyUser, rhs: SpotifyUser) -> Bool {
-        lhs.uri == rhs.uri
-    }
 }
 
     // MARK: - User Profile
@@ -232,4 +196,34 @@ enum TimeRange: String {
     case shortTerm = "short_term"    // Last 4 weeks
     case mediumTerm = "medium_term"  // Last 6 months
     case longTerm = "long_term"      // All time
+}
+
+struct BuddyListResponse: Codable {
+    let friends: [FriendActivity]
+}
+
+// New model specifically for friend activity track data
+struct FriendTrack: Codable, Equatable {
+    let uri: String
+    let name: String
+    let imageUrl: String
+    let album: FriendAlbum
+    let artist: FriendArtist
+    let context: FriendContext?
+}
+
+struct FriendAlbum: Codable, Equatable {
+    let uri: String
+    let name: String
+}
+
+struct FriendArtist: Codable, Equatable {
+    let uri: String
+    let name: String
+}
+
+struct FriendContext: Codable, Equatable {
+    let uri: String
+    let name: String
+    let index: Int
 }
